@@ -1,2 +1,2 @@
-# slicer_configs
-My different slicer configs
+# slic3r configs
+My different slic3r configs
