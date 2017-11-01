@@ -44,7 +44,7 @@ while read -r line; do # process file by file
     let i=$i+1
     W+=($i "$line")
 done < <( ls -1 ${PRINTERS_PATH} )
-PRINTER_ID=$(dialog --title "Choose printer" --menu "Printer" 24 80 17 "${W[@]}" 3>&2 2>&1 1>&3) # show dialog and store output
+PRINTER_ID=$(dialog --title "Printers" --menu "Select the printer" 24 80 17 "${W[@]}" 3>&2 2>&1 1>&3) # show dialog and store output
 
 if [ $? -ne 0 ]; then # Exit
     exit $?
@@ -53,7 +53,7 @@ fi
 PRINTER=${PRINTERS_PATH}/$(ls -1 ${PRINTERS_PATH} | sed -n "`echo "$PRINTER_ID p" | sed 's/ //'`")/default.ini
 
 # Support yes or no ?
-dialog --yesno "Support?" 0 0
+dialog --yesno "Add support?" 0 0
 
 if [ $? -eq 0 ]; then
     SUPPORT=1
@@ -77,11 +77,16 @@ if [ "${W}" == "" ] ; then
     exit 2
 fi
 while [ ${ADD_OTHER_FILE} -eq 1 ] ; do
-    STL_ID=$(dialog --title "Choose STL" --menu "STL (cancel to slice result)" 24 80 17 "${W[@]}" 3>&2 2>&1 1>&3)
+    STL_ID=$(dialog --title "Add files" --menu "Available STL" 24 80 17 "${W[@]}" 3>&2 2>&1 1>&3)
     if [ $? -eq 1 ] ; then
         ADD_OTHER_FILE=0
     else
         STLS=${STLS}" "$(ls -1 ${STL_PATH}/*.{STL,stl} | sed -n "`echo "$STL_ID p" | sed 's/ //'`")
+    fi
+
+    dialog --yesno "Add another file?" 0 0
+    if [ $? -ne 0 ]; then
+        ADD_OTHER_FILE=0
     fi
 done
 
