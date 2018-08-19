@@ -7,7 +7,7 @@
 #version            :0.2
 #usage              :bash slice.sh
 #bash_version       :4.4
-#Requirements       : slic3r-prusa and {dialog or kdialog}
+#Requirements       : slic3r-prusa kdialog
 #==============================================================================
 
 STL_PATH=`pwd`
@@ -19,37 +19,19 @@ ADD_OTHER_FILE=1
 SLICER_CONFIG='/tmp/slic3r.ini'
 SLICER_CMD=''
 DIALOG_CMD=''
-DIALOG_TYPE=''
-
-function showMessage {
-  echo $3
-  case $1 in
-    'menu')
-      if [ "${DIALOG_TYPE}" = 'dialog' ] ; then
-        ${DIALOG_CMD} --title "${2}" --menu "${3}" 24 80 17 ${4} 3>&2 2>&1 1>&3
-      else
-        ${DIALOG_CMD} --menu ${3} $4
-      fi
-    ;;
-  esac
-}
+DENSITIES='0% 5% 10% 15% 20% 30% 40% 50% 60% 70% 80% 90% 100%'
+DEFAULT_DENSITY="30%"
+GCODE=''
 
 function clean_tmp {
     rm ${SLICER_CONFIG}
 }
 
-#Looking for dialog or kdialog
+#Looking for kdialog
 DIALOG_CMD=`which kdialog`
 if [ $? -eq 1 ] ; then
-    DIALOG_CMD=`which dialog`
-    if [ $? -eq 1 ] ; then
-        echo -e "\e[31mDialog or Kdialog not found\e[0m"
-        exit 1
-    else
-      DIALOG_TYPE='dialog'
-    fi
-else
-  DIALOG_TYPE='kdialog'
+  echo -e "\e[31mKdialog not found\e[0m"
+  exit 1
 fi
 
 #Looking for slic3r
@@ -65,85 +47,82 @@ if [ $? -eq 1 ] ; then
     fi
 fi
 
-let i=0 # define counting variable
-W=() # define working array
 
 # Select printer
+PRINTERS=""
 while read -r line; do # process file by file
-    let i=$i+1
-    W+=($i "$line")
+    PRINTERS+=" ${line}"
 done < <( ls -1 ${PRINTERS_PATH} )
-if [ "${DIALOG_TYPE}" = 'kdialog' ] ; then
-  PRINTER_ID=$(kdialog --title "Printers" --menu "Select the printer" "${W[@]}" 3>&2 2>&1 1>&3) # show dialog and store output
-else
-  PRINTER_ID=$(dialog --title "Printers" --menu "Select the printer" 24 80 17 "${W[@]}" 3>&2 2>&1 1>&3) # show dialog and store output
-fi
-
+PRINTER_NAME=$(kdialog --title "Printers" --combobox "Select the printer" ${PRINTERS}) # show dialog and store output
 if [ $? -ne 0 ]; then # Exit
     exit $?
 fi
+if [ "${PRINTER_NAME}" = "" ] ; then
+  kdialog --error "No printer selected!"
+  echo -e "\e[31mNo printer selected!\e[0m"
+  exit 3
+fi
+PRINTER=${PRINTERS_PATH}/${PRINTER_NAME}/default.ini
+cp ${PRINTER} ${SLICER_CONFIG}
 
-PRINTER=${PRINTERS_PATH}/$(ls -1 ${PRINTERS_PATH} | sed -n "`echo "$PRINTER_ID p" | sed 's/ //'`")/default.ini
 
 # Support yes or no ?
-if [ "${DIALOG_TYPE}" = 'kdialog' ] ; then
-  kdialog --title "Support" --yesno "Add support?"
-else
-  dialog --yesno "Add support?" 0 0
-fi
-
+kdialog --title "Support" --yesno "Add support?"
 if [ $? -eq 0 ]; then
     SUPPORT=1
 fi
+sed -i "s/support_material = 0/support_material = ${SUPPORT}/" ${SLICER_CONFIG}
 
-sed "s/support_material = 0/support_material = ${SUPPORT}/" ${PRINTER} > ${SLICER_CONFIG}
+
+# Fill density
+FILL_DENSITY=$(kdialog --title "Fill density" --combobox "Select fill density (DEFAULT: ${DEFAULT_DENSITY})" ${DENSITIES})
+if [ $? -ne 0 ]; then # Exit
+    exit $?
+fi
+if [ "${FILL_DENSITY}" == "" ] ; then
+  FILL_DENSITY=${DEFAULT_DENSITY}
+fi
+sed -i "s/fill_density = 30%/fill_density = ${FILL_DENSITY}/" ${SLICER_CONFIG}
 
 
 # Select STL file
-W=()
-i=0
-while read -r line; do
-    let i=$i+1
-    W+=($i "$line")
-done < <( ls -1 ${STL_PATH}/*.{STL,stl} )
-
-if [ "${W}" == "" ] ; then
-    clear
-    clean_tmp
-    echo -e "\e[31mNo stl found in the current directory!\e[0m"
-    exit 2
-fi
 while [ ${ADD_OTHER_FILE} -eq 1 ] ; do
-    if [ "${DIALOG_TYPE}" = 'kdialog' ] ; then
-      STL_ID=$(kdialog --title "Add files" --menu "Available STL" "${W[@]}" 3>&2 2>&1 1>&3) # show dialog and store output
-    else
-      STL_ID=$(dialog --title "Add files" --menu "Available STL" 24 80 17 "${W[@]}" 3>&2 2>&1 1>&3)
+    STL=$(kdialog --getopenfilename ${STL_PATH} '*.stl *.STL')
+
+    if [ $? -ne 0 ]; then # Exit
+        clean_tmp
+        exit $?
+    fi
+    if [ "${STL}" = "" ] ; then
+      clean_tmp
+      kdialog --error "No file selected!"
+      echo -e "\e[31mNo file selected!\e[0m"
+      exit 3
     fi
 
     if [ $? -eq 1 ] ; then
         ADD_OTHER_FILE=0
     else
-        STLS=${STLS}" "$(ls -1 ${STL_PATH}/*.{STL,stl} | sed -n "`echo "$STL_ID p" | sed 's/ //'`")
+        STLS+=" ${STL}"
+
+        if [ "${GCODE}" == "" ] ; then
+          GCODE="${STL}.gcode"
+        fi
     fi
 
-    if [ "${DIALOG_TYPE}" = 'kdialog' ] ; then
-      kdialog --title "Add" --yesno "Add another file?"
-    else
-      dialog --title "Add" --yesno "Add another file?" 0 0
-    fi
+    kdialog --title "Add" --yesno "Add another file?"
     if [ $? -ne 0 ]; then
         ADD_OTHER_FILE=0
     fi
 done
 
-clear
-
 if [ "${STLS}" != "" ] ; then
-    ${SLICER_CMD} --load ${SLICER_CONFIG} -m ${STLS}
+    ${SLICER_CMD} --load ${SLICER_CONFIG} -m ${STLS} -o ${GCODE}
+    kdialog --msgbox "File saved in ${GCODE}"
     clean_tmp
     exit 0
 else
-    # kdialog --error "No file selected"
+    kdialog --error "No file selected!"
     echo "No file selected"
     clean_tmp
     exit 3
